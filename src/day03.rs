@@ -1,18 +1,49 @@
 mod aoc;
 use aoc::Solver;
-use std::num::Wrapping;
+use itertools::Itertools;
+use std::{num::Wrapping, ops::Not};
 
 fn main() {
-    ("day03.txt", [part_1 as fn(&str) -> String]).solve();
+    ("day03.txt", [part_1, part_2]).solve();
 }
 
 fn part_1(input: &str) -> String {
+    const SYMBOLS: [char; 10] = ['+', '%', '*', '$', '#', '/', '=', '@', '-', '&'];
+
     let line_length = input.find('\n').unwrap() + 1;
     let input: Vec<char> = input.chars().collect();
 
     extract_numbers(&input)
         .iter()
-        .filter_map(|n| check_part_number(&input, n, line_length))
+        .filter_map(|n| {
+            extract_adjacent_symbol_indexes(&input, *n, line_length, &SYMBOLS)
+                .is_empty()
+                .not()
+                .then_some(n.value.0)
+        })
+        .sum::<usize>()
+        .to_string()
+}
+
+fn part_2(input: &str) -> String {
+    let line_length = input.find('\n').unwrap() + 1;
+    let input: Vec<char> = input.chars().collect();
+    let numbers = extract_numbers(&input);
+
+    let gear_number_map = numbers
+        .iter()
+        .map(|n| {
+            extract_adjacent_symbol_indexes(&input, *n, line_length, &['*'])
+                .into_iter()
+                .map(|i| (i, *n))
+        })
+        .flatten()
+        .into_group_map();
+
+    gear_number_map
+        .values()
+        .filter(|ns| ns.len() == 2)
+        .map(|ns| ns[0].value.0 * ns[1].value.0)
         .sum::<usize>()
         .to_string()
 }
@@ -66,26 +97,36 @@ fn extract_numbers(input: &[char]) -> Vec<Number> {
         .0
 }
 
-fn check_part_number(input: &Vec<char>, number: &Number, line_length: usize) -> Option<usize> {
-    const SYMBOLS: [char; 10] = ['+', '%', '*', '$', '#', '/', '=', '@', '-', '&'];
-
+fn extract_adjacent_symbol_indexes(
+    input: &Vec<char>,
+    number: Number,
+    line_length: usize,
+    symbols: &[char],
+) -> Vec<usize> {
     let line_length = Wrapping(line_length);
 
-    ((number.index - line_length - Wrapping(1)).0
-        ..(number.index + number.length - line_length + Wrapping(1)).0)
-        .chain((number.index - Wrapping(1)).0..(number.index + number.length + Wrapping(1)).0)
-        .chain(
-            (number.index + line_length - Wrapping(1)).0
-                ..(number.index + number.length + line_length + Wrapping(1)).0,
-        )
-        .filter_map(|index| input.get(index))
-        .any(|c| SYMBOLS.contains(c))
-        .then(|| number.value.0)
+    let above = (number.index - line_length - Wrapping(1)).0
+        ..(number.index + number.length - line_length + Wrapping(1)).0;
+    let around = (number.index - Wrapping(1)).0..(number.index + number.length + Wrapping(1)).0;
+    let below = (number.index + line_length - Wrapping(1)).0
+        ..(number.index + number.length + line_length + Wrapping(1)).0;
+
+    above
+        .chain(around)
+        .chain(below)
+        .filter_map(|index| {
+            input
+                .get(index)
+                .is_some_and(|c| symbols.contains(c))
+                .then(|| index)
+        })
+        .collect::<Vec<usize>>()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     const EXAMPLE_SCHEMATIC: &str = "467..114..
 ...*......
@@ -142,8 +183,6 @@ mod tests {
 ......
 ......";
 
-    use rstest::rstest;
-
     #[rstest]
     #[case(EXAMPLE_SCHEMATIC, [467,114,35,633,617,58,592,755,664,598].into(), [0, 5, 24, 28, 44, 62, 68, 83, 100, 104].into(), [3, 3, 2, 3, 3, 2, 3, 3, 3, 3].into())]
     #[case(TEST_SCHEMATIC, [515].into(), [8].into(), [3].into())]
@@ -197,5 +236,11 @@ mod tests {
     #[case(TEST_SCHEMATIC_7, "5")]
     fn part_1_test(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(part_1(input), expected);
+    }
+
+    #[rstest]
+    #[case(EXAMPLE_SCHEMATIC, "467835")]
+    fn part_2_test(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(part_2(input), expected);
     }
 }
